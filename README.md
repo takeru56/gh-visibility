@@ -5,6 +5,8 @@ You can switch public/private of your repository easily.
 ## Usage
 ### List your repositories with visibility status.
 ### Change visibility of the repository
+- single repo
+- multiple repos
 
 ## Install
 ### Docker

@@ -3,16 +3,19 @@ use serde_json::json;
 use serde::{Deserialize};
 
 static GITHUB_GRAPHQL_ENDPOINT: &str = "https://api.github.com/graphql";
+static GITHUB_REST_ENDPOINT: &str = "https://api.github.com";
 static APP_USER_AGENT: &str = concat!(
     env!("CARGO_PKG_NAME"),
     "/",
     env!("CARGO_PKG_VERSION"),
 );
 
+#[derive(Debug)]
 struct Arguments {
     program_name: String,
     user_name: String,
     sub_command: String,
+    repo_list: Option<Vec<String>>,
 }
 
 #[derive(Deserialize)]
@@ -31,8 +34,6 @@ struct Repos {
 
 #[derive(Deserialize)]
 struct User {
-    login: String,
-    name: String,
     repositories: Repos,
 }
 
@@ -42,8 +43,14 @@ struct Data {
 }
 
 #[derive(Deserialize)]
-struct Response {
+struct GetResponse {
     data: Data,
+}
+
+#[derive(Deserialize, Debug)]
+struct PatchResponse {
+    name: String,
+    private: bool,
 }
 
 fn print_repos(nodes: &Vec<Node>) {
@@ -59,28 +66,66 @@ fn print_repos(nodes: &Vec<Node>) {
 }
 
 fn print_usage(program_name: &str) {
-    println!("Usage: {} USER_NAME COMMAND\n", program_name);
+    println!("Usage: {} COMMAND USER_NAME\n", program_name);
     println!("Command line interface to change visibility of GitHub repositories.\n");
     println!("Commands:");
-    println!(" list       list repositories with visibility status");
+    println!(" repos      list repositories with visibility status");
     println!(" change     change visibility of the repository");
 }
 
 fn parse_args() -> Arguments {
     let args: Vec<String> = env::args().collect();
-    if args.len() != 3 {
+    if args.len() < 3 {
         println!("invalid arguments.");
         print_usage(&args[0]);
         std::process::exit(1);
     }
+
+    let mut repo_list: Option<Vec<String>> = None;
+    if args.len() > 3 {
+        repo_list = Some(args[3..].iter().map(|s| s.to_string()).collect());
+    }
+
     Arguments {
         program_name: args[0].clone(),
-        user_name: args[1].clone(),
-        sub_command: args[2].clone(),
+        sub_command: args[1].clone(),
+        user_name: args[2].clone(),
+        repo_list: repo_list,
     }
 }
 
-async fn list_repos(args: &Arguments) -> reqwest::Result<()>{
+async fn change_visibility(args: &Arguments) -> reqwest::Result<()> {
+    if args.repo_list.is_none() {
+        println!("invalid arguments.");
+        println!("Usage: {} change USER_NAME REPO_NAME:(private|public) ...", args.program_name);
+        std::process::exit(1);
+    }
+
+    for repo in args.repo_list.as_ref().unwrap() {
+        let status: Vec<&str> = repo.split(':').collect();
+        let body = json!({"visibility": status[1]});
+
+        let client = reqwest::Client::builder()
+            .user_agent(APP_USER_AGENT)
+            .build()?;
+
+        let res = client.post(format!("{}/repos/{}/{}", GITHUB_REST_ENDPOINT, args.user_name, status[0]))
+            .basic_auth(&args.user_name, Some(env!("GITHUB_AUTH_TOKEN")))
+            .json(&body)
+            .send()
+            .await
+            .expect("failed to get response");
+
+        match res.json::<PatchResponse>().await {
+            Err(_) => println!("failed to change visibility of {}", status[0]),
+            Ok(result) => println!("{:?} is now private: {}", result.name, result.private),
+        }
+    }
+
+    Ok(())
+}
+
+async fn list_repos(args: &Arguments) -> reqwest::Result<()> {
     let val = "{
         user(login: \"{USERNAME}\") {
             login
@@ -109,7 +154,7 @@ async fn list_repos(args: &Arguments) -> reqwest::Result<()>{
         .await
         .expect("failed to get response");
 
-    let user = res.json::<Response>().await?.data.user;
+    let user = res.json::<GetResponse>().await?.data.user;
     print_repos(&user.repositories.nodes);
     Ok(())
 }
@@ -117,8 +162,10 @@ async fn list_repos(args: &Arguments) -> reqwest::Result<()>{
 #[tokio::main]
 async fn main() -> reqwest::Result<()>{
     let args = parse_args();
-    if args.sub_command  == "list" {
+    if args.sub_command  == "repos" {
         list_repos(&args).await?;
+    } else if args.sub_command == "change" {
+        change_visibility(&args).await?;
     }
     Ok(())
 }
