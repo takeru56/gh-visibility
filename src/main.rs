@@ -1,4 +1,4 @@
-use std::env;
+use std::{env, error::Error, io::{Write, stderr}};
 use serde_json::json;
 use serde::{Deserialize};
 
@@ -51,6 +51,21 @@ struct GetResponse {
 struct PatchResponse {
     name: String,
     private: bool,
+}
+
+// #[derive(Debug, Clone)]
+// struct ArgErr {
+//     message: String,
+//     line: useze,
+//     column: usize,
+// }
+
+fn print_error(mut err: &dyn Error) {
+    let _ = writeln!(stderr(), "error: {}", err);
+    while let Some(source) = err.source() {
+        let _ = writeln!(stderr(), "caused by: {}", source);
+        err = source;
+    }
 }
 
 fn print_repos(nodes: &Vec<Node>) {
@@ -113,8 +128,7 @@ async fn change_visibility(args: &Arguments) -> reqwest::Result<()> {
             .basic_auth(&args.user_name, Some(env!("GITHUB_AUTH_TOKEN")))
             .json(&body)
             .send()
-            .await
-            .expect("failed to get response");
+            .await?;
 
         match res.json::<PatchResponse>().await {
             Err(_) => println!("failed to change visibility of {}", status[0]),
@@ -151,8 +165,7 @@ async fn list_repos(args: &Arguments) -> reqwest::Result<()> {
         .basic_auth(&args.user_name, Some(env!("GITHUB_AUTH_TOKEN")))
         .json(&query)
         .send()
-        .await
-        .expect("failed to get response");
+        .await?;
 
     let user = res.json::<GetResponse>().await?.data.user;
     print_repos(&user.repositories.nodes);
@@ -160,12 +173,19 @@ async fn list_repos(args: &Arguments) -> reqwest::Result<()> {
 }
 
 #[tokio::main]
-async fn main() -> reqwest::Result<()>{
+async fn main() {
     let args = parse_args();
     if args.sub_command  == "repos" {
-        list_repos(&args).await?;
+        if let Err(err) = list_repos(&args).await {
+            print_error(&err);
+            std::process::exit(1);
+        }
     } else if args.sub_command == "change" {
-        change_visibility(&args).await?;
+        if let Err(err) = change_visibility(&args).await {
+            print_error(&err);
+            std::process::exit(1);
+        }
+    } else {
+        print_usage(&args.program_name);
     }
-    Ok(())
 }
