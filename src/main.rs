@@ -1,6 +1,7 @@
 use std::{env, error::Error, io::{Write, stderr}};
 use serde_json::json;
 use serde::{Deserialize};
+use async_recursion::async_recursion;
 
 static GITHUB_GRAPHQL_ENDPOINT: &str = "https://api.github.com/graphql";
 static GITHUB_REST_ENDPOINT: &str = "https://api.github.com";
@@ -27,9 +28,17 @@ struct Node {
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
+struct PageInfo {
+    has_next_page: bool,
+    end_cursor: String,
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
 struct Repos {
-    total_count: i32,
     nodes: Vec<Node>,
+    page_info: PageInfo,
+
 }
 
 #[derive(Deserialize)]
@@ -139,23 +148,33 @@ async fn change_visibility(args: &Arguments) -> reqwest::Result<()> {
     Ok(())
 }
 
-async fn list_repos(args: &Arguments) -> reqwest::Result<()> {
-    let val = "{
+#[async_recursion]
+async fn fetch_repos(args: &Arguments, cursor: String, mut nodes: Vec<Node>) -> reqwest::Result<Vec<Node>> {
+    let arg: String =
+        if cursor == "" {
+            "first: 100".to_string()
+        } else {
+            "first: 100, after: \"{CURSOR}\"".replace("{CURSOR}", &cursor)
+        };
+
+    let query = "{
         user(login: \"{USERNAME}\") {
-            login
-            name
-            repositories(first: 100){
+            repositories({ARG}){
                 totalCount
                 nodes {
                     name
                     visibility
                     description
                 }
+                pageInfo {
+                    hasNextPage
+                    endCursor
+                }
             }
         }
-    }".replace("{USERNAME}", &args.user_name);
+    }".replace("{USERNAME}", &args.user_name).replace("{ARG}", &arg);
 
-    let query = json!({"query": val});
+    let query = json!({"query": query});
 
     let client = reqwest::Client::builder()
         .user_agent(APP_USER_AGENT)
@@ -165,10 +184,24 @@ async fn list_repos(args: &Arguments) -> reqwest::Result<()> {
         .basic_auth(&args.user_name, Some(env!("GITHUB_AUTH_TOKEN")))
         .json(&query)
         .send()
+        .await?
+        .json::<GetResponse>()
         .await?;
 
-    let user = res.json::<GetResponse>().await?.data.user;
-    print_repos(&user.repositories.nodes);
+    nodes.extend(res.data.user.repositories.nodes);
+
+    let info = res.data.user.repositories.page_info;
+    if info.has_next_page {
+        nodes = fetch_repos(args, info.end_cursor, nodes).await?;
+    }
+
+    Ok(nodes)
+}
+
+async fn list_repos(args: &Arguments) -> reqwest::Result<()> {
+    let mut repos: Vec<Node> = Vec::new();
+    repos = fetch_repos(args, "".to_string(), repos).await?;
+    print_repos(&repos);
     Ok(())
 }
 
