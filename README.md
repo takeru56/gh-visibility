@@ -9,14 +9,14 @@ Please prepare an [personal access token](https://docs.github.com/ja/authenticat
 
 - Set token as an environment variable in shell
 ```
-export GITHUB_AUTH_TOKEN="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+export GITHUB_AUTH_TOKEN="your_token"
 ```
 
 OR
 
 - Set token when executing commands
 ```
- GITHUB_AUTH_TOKEN="xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx" COMMAND
+ GITHUB_AUTH_TOKEN="your_token" COMMAND
 ```
 ### Help
 ```
@@ -51,29 +51,44 @@ repo_name              visibility description
 ```
 
 ### Change visibility of the repository
-- single repo
+#### single repo
 ```
 $ gh-visibility change USER_NAME REPO_NAME:[public|private]
 ```
 ex.
+- switch to private repo
 ```
-// switch to private repo
 $ gh-visibility change takeru56 gh-visibility:private
 "gh-visibility" is now private: true
+```
 
-// switch to public repo
+- switch to public repo
+```
 $ gh-visibility change takeru56 gh-visibility:public
 "gh-visibility" is now private: false
 ```
 
-- multiple
+#### multiple
 ```
 $ gh-visibility change USER_NAME REPO_NAME:[public|private] REPO_NAME:[public|private]...
 ```
 
 ## Install
 ### Docker
+- install
+```
+$ git clone git@github.com:takeru56/gh-visibility.git
+$ cd gh-visibility
+$ docker build -t gh-visibility .
+```
+
+- run
+```
+$ docker run -e GITHUB_AUTH_TOKEN="your_token" gh-visibility repos USER_NAME
+```
+
 ### From source
+todo
 
 ## License
 MIT

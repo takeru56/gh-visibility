@@ -11,11 +11,11 @@ static APP_USER_AGENT: &str = concat!(
     env!("CARGO_PKG_VERSION"),
 );
 
-#[derive(Debug)]
 struct Arguments {
     program_name: String,
     user_name: String,
     sub_command: String,
+    dev_token: String,
     repo_list: Option<Vec<String>>,
 }
 
@@ -105,6 +105,7 @@ fn parse_args() -> Arguments {
         std::process::exit(1);
     }
 
+    let token = env::var("GITHUB_AUTH_TOKEN").expect("Please set GITHUB_AUTH_TOKEN.");
     let mut repo_list: Option<Vec<String>> = None;
     if args.len() > 3 {
         repo_list = Some(args[3..].iter().map(|s| s.to_string()).collect());
@@ -114,6 +115,7 @@ fn parse_args() -> Arguments {
         program_name: args[0].clone(),
         sub_command: args[1].clone(),
         user_name: args[2].clone(),
+        dev_token: token,
         repo_list: repo_list,
     }
 }
@@ -134,7 +136,7 @@ async fn change_visibility(args: &Arguments) -> reqwest::Result<()> {
             .build()?;
 
         let res = client.post(format!("{}/repos/{}/{}", GITHUB_REST_ENDPOINT, args.user_name, status[0]))
-            .basic_auth(&args.user_name, Some(env!("GITHUB_AUTH_TOKEN")))
+            .basic_auth(&args.user_name, Some(&args.dev_token))
             .json(&body)
             .send()
             .await?;
@@ -181,7 +183,7 @@ async fn fetch_repos(args: &Arguments, cursor: String, mut nodes: Vec<Node>) -> 
         .build()?;
 
     let res = client.post(GITHUB_GRAPHQL_ENDPOINT)
-        .basic_auth(&args.user_name, Some(env!("GITHUB_AUTH_TOKEN")))
+        .basic_auth(&args.user_name, Some(&args.dev_token))
         .json(&query)
         .send()
         .await?
